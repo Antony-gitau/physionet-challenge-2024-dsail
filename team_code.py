@@ -14,6 +14,11 @@ import numpy as np
 import os
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 import sys
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, BatchNormalization, Dropout, ReLU, Flatten, Dense
+from tensorflow.keras.optimizers import Adam
+from sklearn.preprocessing import LabelBinarizer
 
 from helper_code import *
 
@@ -116,13 +121,27 @@ def train_dx_model(data_folder, model_folder, verbose):
         print('Training the model on the data...')
 
     # Define parameters for random forest classifier and regressor.
-    n_estimators   = 12  # Number of trees in the forest.
-    max_leaf_nodes = 34  # Maximum number of leaf nodes in each tree.
-    random_state   = 56  # Random state; set for reproducibility.
+    # n_estimators   = 12  # Number of trees in the forest.
+    # max_leaf_nodes = 34  # Maximum number of leaf nodes in each tree.
+    # random_state   = 56  # Random state; set for reproducibility.
 
-    # Fit the model.
-    model = RandomForestClassifier(
-        n_estimators=n_estimators, max_leaf_nodes=max_leaf_nodes, random_state=random_state).fit(features, dxs)
+    # # Fit the model.
+    # model = RandomForestClassifier(
+    #     n_estimators=n_estimators, max_leaf_nodes=max_leaf_nodes, random_state=random_state).fit(features, dxs)
+    model = Sequential()
+    for _ in range(7):
+        model.add(Conv2D(filters=64, kernel_size=(3, 3), strides=2, padding='same', input_shape=features.shape[1:]))
+        model.add(BatchNormalization())
+        model.add(Dropout(0.2))
+        model.add(ReLU())
+    model.add(Flatten())
+    model.add(Dense(128))
+    model.add(ReLU())
+    model.add(Dense(len(classes), activation='softmax'))
+
+    model.compile(optimizer=Adam(), loss='categorical_crossentropy', metrics=['accuracy'])
+
+    model.fit(features, dxs, epochs=10, batch_size=32, verbose=verbose)
 
     # Create a folder for the model if it does not already exist.
     os.makedirs(model_folder, exist_ok=True)
