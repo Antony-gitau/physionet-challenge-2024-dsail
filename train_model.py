@@ -26,7 +26,7 @@ def get_parser():
 
 # Run the code.
 def run(args):
-    train_digitization_model(args.data_folder, args.model_folder, args.verbose) ### Teams: Implement this function!!!
+    # train_digitization_model(args.data_folder, args.model_folder, args.verbose) ### Teams: Implement this function!!!
     train_dx_model(args.data_folder, args.model_folder, args.verbose) ### Teams: Implement this function!!!
 
 if __name__ == '__main__':
