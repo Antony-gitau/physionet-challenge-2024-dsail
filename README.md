@@ -1,10 +1,10 @@
-# Python example code for the George B. Moody PhysioNet Challenge 2024
+# Example code for the George B. Moody PhysioNet Challenge 2024
 
 ## What's in this repository?
 
-This repository contains a simple example that illustrates how to format a Python entry for the [George B. Moody PhysioNet Challenge 2024](https://physionetchallenges.org/2024/). If you are participating in the 2024 Challenge, then we recommend using this repository as a template for your entry. You can remove some of the code, reuse other code, and add new code to create your entry. You do not need to use the models, features, and/or libraries in this example for your entry. We encourage a diversity of approaches for the Challenges.
+This repository contains a more complex example that illustrates how to format a Python entry for the [George B. Moody PhysioNet Challenge 2024](https://physionetchallenges.org/2024/). Like the [simple example](https://github.com/physionetchallenges/python-example-2024) that we provide as a template for your entries, you can remove some of the code, reuse other code, and add new code to create your entry. You do not need to use the models, features, and/or libraries in this example for your entry. We encourage a diversity of approaches for the Challenges.
 
-For this example, we implemented a random forest model with several simple features. (This simple example is **not** designed to perform well, so you should **not** use it as a baseline for your approach's performance.) You can try it by running the following commands on the Challenge training set. If you are using a relatively recent personal computer, then you should be able to run these commands from start to finish on a small subset (1000 records) of the training data in less than 30 minutes.
+For this example, we implemented a convolutional neural network (CNN) that it is inspired by [Zhang et al.](https://arxiv.org/abs/2302.10301). You can try it by running the following commands on the Challenge training set. If you are using a relatively recent personal computer, then you should be able to run these commands from start to finish on a very small subset (100 records) of the training data in less than an hour.
 
 ## How do I run these scripts?
 
@@ -70,8 +70,7 @@ You can use the scripts in this repository to generate synthetic ECG images for 
         python gen_ecg_images_from_data_batch.py \
             -i ptb-xl/records500/00000 \
             -o ptb-xl/records500/00000 \
-            --print_header \
-            --store_config 2
+            --print_header
 
 4. Add the file locations and other information for the synthetic ECG images to the WFDB header files. (The expected image filenames for record `12345` are of the form `12345-0.png`, `12345-1.png`, etc., which should be in the same folder.) You can use the `ptb-xl/records500/00000` folder for the `train_model` step:
 
@@ -139,7 +138,9 @@ If you have trouble running your code, then please try the follow steps to run t
 
         user@computer:~/example$ git clone https://github.com/physionetchallenges/python-example-2024.git
 
-4. Build a Docker image and run the example code in your terminal.
+4. Choose the Dockerfile for a GPU-attached or CPU-only machine: (a) If you have a GPU, then you can build a Docker image that supports faster comoputation by renaming `Dockerfile_gpu` to `Dockerfile`. (b). Alternatively, if you do not have a GPU, then you can build a Docker image that supports your machine by renaming `Dockerfile_cpu` to `Dockerfile`.
+
+5. Build a Docker image and run the example code in your terminal.
 
         user@computer:~/example$ ls
         model  python-example-2024  test_data  test_outputs  training_data
