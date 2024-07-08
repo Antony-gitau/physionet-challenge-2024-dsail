@@ -1,0 +1,24 @@
+(lp0
+VNORM
+p1
+aVAcute MI
+p2
+aVOld MI
+p3
+aVSTTC
+p4
+aVCD
+p5
+aVHYP
+p6
+aVPAC
+p7
+aVPVC
+p8
+aVAFIB/AFL
+p9
+aVTACHY
+p10
+aVBRADY
+p11
+a.
