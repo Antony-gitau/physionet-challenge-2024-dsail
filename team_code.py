@@ -234,17 +234,18 @@ def train_models(data_folder, model_folder, verbose):
 # function to add your code, but do *not* change the arguments of this
 # function. If you do not train one of the models, then you can return None for
 # the model.
+
 def load_models(model_folder, verbose):
     digitization_model = None
-
-    #classes_filename = os.path.join(model_folder, 'classes.txt')
-    #classes = joblib.load(classes_filename)
-
     classification_filepath = os.path.join(model_folder, 'multilabel-model.keras')
+    if not os.path.exists(classification_filepath):
+        wget.download('https://storage.googleapis.com/figures-gp/physionet/multilabel-model.keras', model_folder)
+
     classification_model = tf.keras.models.load_model(classification_filepath)
     #classification_model = keras.saving.load_model(classification_filepath, custom_objects=None, compile=True, safe_mode=True)
 
     return digitization_model, classification_model
+
 
 # Run your trained digitization model. This function is *required*. You should edit this function to add your code, but do *not*
 # change the arguments of this function. If you did not train one of the models, then you can return None for the model.
