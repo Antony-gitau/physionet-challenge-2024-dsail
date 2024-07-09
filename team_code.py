@@ -9,37 +9,49 @@
 #
 ################################################################################
 
-import joblib
+import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import cv2
 import os
-import random
 import shutil
-import sys
-import torch
-import torch.nn as nn
-import torch.optim as optim
+import wget
+from pathlib import Path
+import joblib
 
-from PIL import Image
-from collections import OrderedDict
-from data_loader import get_training_and_validation_loaders, data_transform
-from functools import partial
-from helper_code import *
-from matplotlib import pyplot as plt
-from simple_cnn import SimpleCNN
-from sklearn.metrics import average_precision_score,precision_recall_curve,roc_curve, roc_auc_score
+import tensorflow as tf
+from tensorflow.keras.applications.inception_v3 import InceptionV3
+from tensorflow import data as tf_data
+from tensorflow import image as tf_image
+from tensorflow import io as tf_io
+
+import keras
+import keras.optimizers
+
 from sklearn.model_selection import train_test_split
-from torch import Tensor
-from torch.optim.lr_scheduler import StepLR
-from torch.utils.data import Dataset
-from torchvision.datasets import ImageFolder
-from tqdm import tqdm
-from typing import Callable, Optional
+from sklearn.metrics import accuracy_score, classification_report, f1_score
 
-DEVICE = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-EPOCHS = 10
-CLASSIFICATION_THRESHOLD=0.5
-CLASSIFICATION_DISTANCE_TO_MAX_THRESHOLD=0.1
-LIST_OF_ALL_LABELS=['NORM', 'Acute MI', 'Old MI', 'STTC', 'CD', 'HYP', 'PAC', 'PVC', 'AFIB/AFL', 'TACHY', 'BRADY'] 
+
+DEBUG = False
+if DEBUG:
+    image_shape = (550, 425) #(650, 525) ## (width, height)
+    max_samples = 100 #10
+    num_epochs = 2 #10
+
+else:
+    image_shape = (550, 425) #(650, 525)
+    max_samples = 2000 #None
+    num_epochs = 100
+
+BATCH_SIZE = 4
+USE_WANDB = False
+TRAIN_FOLDS = [1,2,3,4,5,6,7,8]
+VAL_FOLDS = [9,10]
+label_mapping = {"NORM", "Acute MI", "Old MI", "STTC", "CD", "HYP", "PAC", "PVC", "AFIB/AFL", "TACHY", "BRADY"}
+LABELS = sorted(label_mapping) ## a list of labels
+
+joblib.dump({'TRAIN_FOLDS': TRAIN_FOLDS, 'VAL_FOLDS': VAL_FOLDS}, 'folds.pkl')
+
 
 ################################################################################
 #
@@ -49,294 +61,253 @@ LIST_OF_ALL_LABELS=['NORM', 'Acute MI', 'Old MI', 'STTC', 'CD', 'HYP', 'PAC', 'P
 
 # Train your models. This function is *required*. You should edit this function to add your code, but do *not* change the arguments
 # of this function. If you do not train one of the models, then you can return None for the model.
-
-# Train your digitization model.
 def train_models(data_folder, model_folder, verbose):
-    # Find the data files.
-    if verbose:
-        print('Finding the Challenge data...')
+    csv_path ='multilabel_classification.csv'
+    if not os.path.exists(csv_path):
+        physio_paths = list(Path(data_folder).rglob('*.hea'))
+        physio_paths = [str(i) for i in physio_paths]
+        df = extract_info_from_hea(label_mapping, physio_paths)
 
-    records = find_records(data_folder)
-    num_records = len(records)
-
-    if num_records == 0:
-        raise FileNotFoundError('No data were provided.')
-
-    if verbose:
-        print('Training the digitization model...')
-
-    # Extract the features and labels from the data.
-    if verbose:
-        print('Extracting features and labels from the data...')
-
-    digitization_features = list()
-    classification_images = list() # list of image paths
-    classification_labels = list() # list of lists of strings
-
-    # Iterate over the records.
-    for i in range(num_records):
+    #ptbxl_db_path = os.path.join(data_folder, 'ptbxl_database.csv')
+    ptbxl_db_path = 'ptbxl_database.csv'
+    if not os.path.exists(ptbxl_db_path):
         if verbose:
-            width = len(str(num_records))
-            print(f'- {i+1:>{width}}/{num_records}: {records[i]}...')
+            print("Downloading ptbxl_database.csv...")
+        wget.download('https://physionet.org/files/ptb-xl/1.0.3/ptbxl_database.csv', out=ptbxl_db_path)
+        if verbose:
+            print(f"ptbxl_database.csv downloaded successfully to {ptbxl_db_path}")
 
-        record = os.path.join(data_folder, records[i])
-        record_parent_folder=os.path.dirname(record)
+        ptbxl_df = pd.read_csv(ptbxl_db_path)
+        ptbxl_df[['filename_hr', 'strat_fold']].head()
 
-        # Extract the features from the image; this simple example uses the
-        # same features for the digitization and classification tasks.
-        features = extract_features(record)
-        digitization_features.append(features)
-        # For classification, we're just using the images and labels
-        # rather than extracting features
+        df['strat_fold'] = df['Image_Path'].str[-31:-6].map(dict(zip(ptbxl_df['filename_hr'], ptbxl_df['strat_fold'])))
+        df.head()
 
-        # Some images may not be labeled, so we'll exclude those
-        labels = load_labels(record)
-        if labels:
+        df.to_csv(csv_path, index=False)
+    else :
+        df = pd.read_csv(csv_path)
 
-            # I'm imposing a further condition: the label strings should be nonempty
-            nonempty_labels=[l for l in labels if l != '']
-            if nonempty_labels != []:
+    train_df = df[df['strat_fold'].isin(TRAIN_FOLDS)]
+    val_df = df[df['strat_fold'].isin(VAL_FOLDS)]
 
-                # Add the first image to the list
-                images = get_image_files(record)
-                classification_images.append(os.path.join(record_parent_folder, images[0]) )
-                classification_labels.append(nonempty_labels)
+    train_dataset = get_dataset(
+      BATCH_SIZE,
+      img_size = image_shape,
+      df=train_df,
+      max_dataset_len=max_samples,
+    )
 
-    # We expect some images to be labeled for classification.
-    if not classification_labels:
-        raise Exception('There are no labels for the data.')
+    valid_dataset = get_dataset(
+      BATCH_SIZE,
+      img_size = image_shape,
+      df=val_df,
+      max_dataset_len=max_samples,
+    )
 
-    # Fix an ordering of the labels
-    num_classes=len(LIST_OF_ALL_LABELS)
+    ## use prefetching to optimize loading speed.
+    train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE).cache()
+    valid_dataset = valid_dataset.prefetch(tf.data.AUTOTUNE).cache() ## Is this repetitive? Having already used ""num_parallel_calls=tf_data.AUTOTUNE""
 
-    # Train the models.
-    if verbose:
-        print('Training the models on the data...')
+    ## Save a single batch in png/pdf format
+    num_images = min(BATCH_SIZE, max_samples)
+    num_columns = 3
+    subplot_width = 5.5
+    subplot_height = 4.25
+    num_rows = int(np.ceil(np.sqrt(num_images)))
 
-    # Train the digitization model. This very simple model uses the mean of
-    # these very simple features as a seed for a random number generator.
-    digitization_model = np.mean(features)
+    # Create the figure and subplots
+    fig, axes = plt.subplots(num_rows, num_columns, figsize=(num_columns * subplot_width, num_rows * subplot_height))
+    axes = axes.flatten()
 
-    #=====================
-    # Classification task
-    #=====================
+    for imgs, lbls in train_dataset.take(1):
+        for i in range(num_images):
+            image = imgs[i].numpy().astype('uint8')
+            title = ', '.join(np.array(LABELS)[lbls[i].numpy()==1])
+            axes[i].imshow(image)
+            axes[i].set_title(title)
+            axes[i].axis('off')
 
-    # Split the training set into "training" and "validation" subsets, returning them as DataLoaders
-    training_loader, validation_loader \
-        = get_training_and_validation_loaders(LIST_OF_ALL_LABELS, classification_images, classification_labels)
+    # Turn off any unused subplots
+    for j in range(num_images, len(axes)):
+            axes[j].axis('off')
 
-    # Initialize a model
-    classification_model = SimpleCNN(LIST_OF_ALL_LABELS).to(DEVICE)
-    for param in classification_model.parameters(): # fine tune all the layers
-        param.requires_grad = True
+    plt.tight_layout()
+    plt.savefig(os.path.join(model_folder, 'batch_0.pdf'))
+    plt.savefig(os.path.join(model_folder, 'batch_0.png'))
 
-    loss = nn.BCELoss() # binary cross entropy loss for multilabel classification
-    opt = optim.Adam(classification_model.parameters(), lr=1e-3, weight_decay=1e-4) #FIXME: put these options as global variables at the top? 
-    scheduler = StepLR(opt, step_size=7, gamma=0.1)                  #FIXME: ditto here
+    if verbose :
+        print(f"Batch 0 saved as '{os.path.join(model_folder, 'batch_0.png')}'")
 
-    N_loss = []
-    N_loss_valid = []
-    train_auprc = []
-    valid_auprc = []
-    train_auroc= []
-    valid_auroc = []
-    f1_train = []
-    f1_valid = []
+    # Define the mean and standard deviation for ImageNet
+    # mean = [0.485, 0.456, 0.406]
+    # std = [0.229, 0.224, 0.225]
 
-    plot_folder=os.path.join(model_folder, "training_figures")
-    os.makedirs(plot_folder, exist_ok=True)
+    # Create a Sequential model with all layers defined inside the constructor
+    '''
+    model = keras.models.Sequential([
+      tf.keras.Input(shape=(image_shape[1], image_shape[0], 3)),
+      keras.layers.Normalization(mean=mean, variance=[s**2 for s in std]),
+      InceptionV3(weights='imagenet', include_top=False),
+      keras.layers.GlobalAveragePooling2D(),
+      keras.layers.Dense(32, activation='relu'),
+      keras.layers.Dropout(0.2),
+      keras.layers.Dense(11, activation='sigmoid')
+    ])
+    '''
+    
+    '''
+    input_layer = tf.keras.Input(shape=(image_shape[1], image_shape[0], 3))
+    x = keras.layers.Normalization(mean=mean, variance=[s**2 for s in std])(input_layer)
+    base_model = InceptionV3(weights='imagenet', include_top=False, input_tensor=x)
+    x = keras.layers.GlobalAveragePooling2D()(base_model.output)
+    x = keras.layers.Dense(32, activation='relu')(x)
+    x = keras.layers.Dropout(0.2)(x)
+    output = keras.layers.Dense(11, activation='sigmoid')(x)
+    model = keras.models.Model(inputs=input_layer, outputs=output)
+    '''
+    
+    model = InceptionV3(weights='imagenet', include_top=False, input_shape=(image_shape[1], image_shape[0], 3))
+    x = keras.layers.GlobalAveragePooling2D()(model.output)
+    x = keras.layers.Dense(32, activation='relu')(x)
+    x = keras.layers.Dropout(0.2)(x)
+    output = keras.layers.Dense(11, activation='sigmoid')(x)
+    model = keras.models.Model(inputs=model.input, outputs=output)
 
-    # Filename to save the final weights to
-    final_weights=None
+    optimizer = keras.optimizers.Adam(learning_rate=0.0001)
 
-    # Now let's train!
-    for epoch in range(EPOCHS):
+    model.compile(optimizer=optimizer, loss='binary_crossentropy',
+                metrics=[tf.keras.metrics.F1Score(average='macro', threshold=None, name='macro_f1_score', dtype=None),
+                        tf.keras.metrics.F1Score(average='micro', threshold=None, name='micro_f1_score', dtype=None)])
 
-        # Initialization of variables for plotting the progress 
-         N_item_sum = 0 
-         N_item_sum_valid = 0 
-         targets_train = []
-         outputs_train = []
-         targets_valid = []
-         outputs_valid = []
-         
-         ### Training part
-         if verbose:
-            print(f"============================[{epoch}]============================")
-         classification_model.train()
-         for i, (image, label) in enumerate(training_loader):
-             opt.zero_grad()
+    model_filepath = os.path.join(model_folder, 'multilabel-model.keras')
+    callbacks = [
+      keras.callbacks.EarlyStopping(patience=50, monitor='val_micro_f1_score'),
+      keras.callbacks.ModelCheckpoint(filepath=model_filepath, save_best_only=True),
+      keras.callbacks.TensorBoard(log_dir='./logs'),
+    ]
 
-             image = image.float().to(DEVICE)
-             label = label.to(torch.float).to(DEVICE)
-             prediction = classification_model(image)
-             
-             # loss
-             N = loss(prediction,label) 
-             N.backward()
-             N_item = N.item()
-             N_item_sum += N_item
+    if USE_WANDB :
+        from kaggle_secrets import UserSecretsClient
+        user_secrets = UserSecretsClient()
+        wandb_api = user_secrets.get_secret("wandb_api")
+        import wandb
+        from wandb.integration.keras import WandbMetricsLogger, WandbCallback, WandbEvalCallback
+        wandb.login(key=wandb_api)
+        wandb.init('Physionet-Challenge')
+        callbacks += [WandbMetricsLogger()]
 
-             # gradient clipping plus optimizer
-             torch.nn.utils.clip_grad_norm_(classification_model.parameters(), max_norm=10)
-             opt.step()
-             if verbose:
-                print(f"Epoch: {epoch}, Iteration: {i}, Loss: {N_item}")
+    # Load tensorboard
+    #%load_ext tensorboard
+    #%tensorboard --logdir logs
 
-             targets_train.append(label.data.cpu().numpy()) #target[:,0]
-             outputs_train.append(prediction.data.cpu().numpy())
+    history = model.fit(train_dataset, epochs=num_epochs, callbacks=callbacks, validation_data=valid_dataset)
 
-         ### Validation part
-         classification_model.eval()
-         with torch.no_grad():
-          for j, (image, label) in enumerate(validation_loader):
-                 image = image.float().to(DEVICE)
-                 label = label.to(torch.float).to(DEVICE)
-                 prediction = classification_model(image)
-                 
-                 N = loss(prediction,label)
-                 N_item = N.item()
-                 N_item_sum_valid += N.item()
+    ## Visualize training & validation loss
+    plt.figure(figsize=(12, 6))
+    plt.plot(history.history['loss'], label='loss')
+    plt.plot(history.history['val_loss'], label='val_loss')
+    plt.ylabel('Loss')
+    plt.xlabel('Epoch')
+    plt.title('Model Loss')
+    plt.legend()
+    plt.savefig('loss.pdf')
+    plt.savefig('loss.png')
 
-                 targets_valid.append(label.data.cpu().numpy()) #target[:,0]
-                 outputs_valid.append(prediction.data.cpu().numpy())
-                 print(f"Epoch: {epoch}, Valid Iteration: {j}, Loss: {N_item}")
+    ## Visualize training & validation metrics
+    plt.figure(figsize=(12, 6))
+    metrics = ['macro_f1_score', 'micro_f1_score']
+    for metric in metrics:
+        train_metric = history.history[metric]
+        val_metric = history.history[f'val_{metric}']
+        plt.plot(train_metric, label=metric)
+        plt.plot(val_metric, label=f'val_{metric}')
 
-         scheduler.step()
+    plt.xlabel('Epoch')
+    plt.ylabel('F1 Score')
+    plt.title('Training & Validation Metrics')
+    plt.legend()
+    plt.savefig('metrics.pdf')
+    plt.savefig('metrics.png')
 
-         # Logging the outputs and targets to caluclate auprc and auroc
-         targets_train = np.concatenate(targets_train, axis=0).T
-         outputs_train = np.concatenate(outputs_train, axis=0).T
-         targets_valid = np.concatenate(targets_valid, axis=0).T
-         outputs_valid = np.concatenate(outputs_valid, axis=0).T
-
-         auprc_t = average_precision_score(y_true=targets_train, y_score=outputs_train)
-         auroc_t = roc_auc_score(y_true=targets_train, y_score=outputs_train)
-         auprc_v = average_precision_score(y_true=targets_valid, y_score=outputs_valid)
-         auroc_v = roc_auc_score(y_true=targets_valid, y_score=outputs_valid)
-
-         train_auprc.append(auprc_t)
-         train_auroc.append(auroc_t)
-         valid_auprc.append(auprc_v)
-         valid_auroc.append(auroc_v)
-         
-         N_loss.append(N_item_sum/i)
-         N_loss_valid.append(N_item_sum_valid/j)
-         
-         # saving loss function after each epoch so you can look on progress
-         fig = plt.figure()
-         plt.plot(N_loss, label="train")
-         plt.plot(N_loss_valid, label="valid")
-         plt.title("Loss function")
-         plt.xlabel('epoch')
-         plt.ylabel('loss')
-         plt.grid()
-         plt.legend()
-         plt.savefig(os.path.join(plot_folder, "loss.png"))
-         plt.close()
-
-         fig = plt.figure()
-         plt.plot(train_auprc, label="train auprc")
-         plt.plot(valid_auprc, label="valid auprc")
-         plt.plot(train_auroc, label="train auroc")
-         plt.plot(valid_auroc, label="valid auroc")
-         
-         plt.title("AUPRC and AUROC")
-         plt.xlabel('epoch')
-         plt.ylabel('Performace')
-         plt.grid()
-         plt.legend()
-         plt.savefig(os.path.join(plot_folder, "auroc_auprc.png"))
-         plt.close()
-
-         ### save model after each epoch
-         file_path = os.path.join(model_folder, "model_weights_" + str(epoch) + ".pth")
-         torch.save(classification_model.state_dict(), file_path)
-
-         # If this is the last epoch, then the weights of the model will be saved to this file
-         final_weights = file_path
-
-    # Create a folder for the models if it does not already exist.
-    os.makedirs(model_folder, exist_ok=True)
-
-    # Save the models.
-    save_models(model_folder, digitization_model, LIST_OF_ALL_LABELS, final_weights)
-
-    if verbose:
-        print('Done.')
-        print()
 
 # Load your trained models. This function is *required*. You should edit this
 # function to add your code, but do *not* change the arguments of this
 # function. If you do not train one of the models, then you can return None for
 # the model.
+
 def load_models(model_folder, verbose):
-    digitization_filename = os.path.join(model_folder, 'digitization_model.sav')
-    digitization_model = joblib.load(digitization_filename)
+    digitization_model = None
+    classification_filepath = os.path.join(model_folder, 'multilabel-model.keras')
+    if not os.path.exists(classification_filepath):
+        wget.download('https://storage.googleapis.com/figures-gp/physionet/multilabel-model-v23.keras', model_folder)
 
-    classes_filename = os.path.join(model_folder, 'classes.txt')
-    classes = joblib.load(classes_filename)
-
-    classification_model = SimpleCNN(classes).to(DEVICE) # instantiate a new copy of the model
-    classification_filename = os.path.join(model_folder, "classification_model.pth")
-    classification_model.load_state_dict(torch.load(classification_filename))
+    classification_model = tf.keras.models.load_model(classification_filepath)
+    #classification_model = keras.saving.load_model(classification_filepath, custom_objects=None, compile=True, safe_mode=True)
 
     return digitization_model, classification_model
+
 
 # Run your trained digitization model. This function is *required*. You should edit this function to add your code, but do *not*
 # change the arguments of this function. If you did not train one of the models, then you can return None for the model.
 def run_models(record, digitization_model, classification_model, verbose):
+
     # Run the digitization model; if you did not train this model, then you can set signal = None.
-    model = digitization_model['model']
+    signal = None
 
-    # Extract features.
-    features = extract_features(record)
+    # Run the classification model
+    if verbose:
+        print(f"Running classification model on {record}")
 
-    # Load the dimensions of the signal.
-    header_file = get_header_file(record)
-    header = load_text(header_file)
+    header_path = f'{record}.hea'
+    with open(header_path, 'r', encoding='utf-8', errors='ignore') as file:
+        lines = file.readlines()
+        image_path = ""
+        labels = ""
 
-    num_samples = get_num_samples(header)
-    num_signals = get_num_signals(header)
-
-    # Generate "random" waveforms using the a random seed from the feature.
-    seed = int(round(model + np.mean(features)))
-    signal = np.random.default_rng(seed=seed).uniform(low=-1, high=1, size=(num_samples, num_signals))
-    
-    # Run the classification model.
-    classes = classification_model.list_of_classes
+        # Iterate over each line in the .hea file
+        for line in lines:
+            if 'Labels' in line:
+                raise LabelsNotRemovedError(header_path)
+            if 'png' in line:
+                image_name = line.split(":")[1].strip()
 
     # Open the image:
-    record_parent_folder=os.path.dirname(record)
-    image_files=get_image_files(record)
-    image_path=os.path.join(record_parent_folder, image_files[0])
-    img = Image.open(image_path)
+    record_parent_folder=os.path.dirname(header_path)
+    #image_files=get_image_files(record)
+    image_path=os.path.join(record_parent_folder, image_name)
+    #img = Image.open(image_path)
+    img = cv2.imread(image_path)
+    img = cv2.resize(img, image_shape)
     # FIXME: repeated code---maybe factor out opening the image from a record
-    if img.mode != 'RGB':
-        img = img.convert('RGB')
+    #if img.mode != 'RGB':
+    #    img = img.convert('RGB')
 
-    # transform the image and make it suitable as input
-    img = data_transform['test'](img).unsqueeze(0)
+    images = np.array([img])
 
-    # send it to the GPU if necessary
-    img = img.float().to(DEVICE)
+    #inference
+    output = classification_model.predict(images)
 
-    classification_model.eval()
-    with torch.no_grad():
-        probabilities = torch.squeeze(classification_model(img), 0).tolist()
-        predictions=list()
-        for i in range(len(classes)):
-            if probabilities[i] >= CLASSIFICATION_THRESHOLD:
-                predictions.append(classes[i])
+    #get all labels
+    class_array = (output >= 0.5).astype(int)
 
-    # backup if none is over the threshold: use the max
+    # Find the indices where the value is 1
+    indices = np.where(class_array[0] == 1)[0]
+
+    # Map indices to class labels
+    predictions = [LABELS[i] for i in indices]
+
+    #TODO: backup if none is over the threshold: use the max
     if predictions==[]:
-        highest_probability=max(probabilities)
-        for i in range(len(classes)):
-            if abs(highest_probability - probabilities[i]) <= CLASSIFICATION_DISTANCE_TO_MAX_THRESHOLD:
-                predictions.append(classes[i])
+        ## do something to avoid returning an empty list
+        ## Pick the most likely class or n most likely classes
+        pass
+    if verbose:
+        print(f'Image Name: {image_name}')
+        print(f'Predicted Labels: {predictions}\n\n')
 
     return signal, predictions
+
+
 
 #########################################################################################
 #
@@ -344,31 +315,80 @@ def run_models(record, digitization_model, classification_model, verbose):
 #
 #########################################################################################
 
-# Extract features.
-def extract_features(record):
-    images = load_images(record)
-    mean = 0.0
-    std = 0.0
-    for image in images:
-        image = np.asarray(image)
-        mean += np.mean(image)
-        std += np.std(image)
-    return np.array([mean, std])
+##############################################################################################################
+##################################  SUPPLEMENTARY FUNCTIONS  #################################################
+def extract_info_from_hea(label_mapping, physio_paths):
+    data = []
 
-# Save your trained models.
-def save_models(model_folder,
-                digitization_model=None,
-                list_of_classes=None,
-                final_weights=None):
-    if digitization_model is not None:
-        d = {'model': digitization_model}
-        filename = os.path.join(model_folder, 'digitization_model.sav')
-        joblib.dump(d, filename, protocol=0)
+    # Iterate over all files in the given folder
+    for filename in physio_paths:
+        if filename.endswith(".hea"):
+            file_path = filename #os.path.join(folder_path, filename)
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
+                lines = file.readlines()
+                image_path = ""
+                labels = ""
 
-    if final_weights is not None:
-        classes=filename = os.path.join(model_folder, 'classes.txt')
-        joblib.dump(list_of_classes, filename, protocol=0)
+                # Iterate over each line in the .hea file
+                for line in lines:
+                    if 'Labels' in line:
+                        labels = line.split(":")[1].strip()
+                    if 'png' in line:
+                        image_path = line.split(":")[1].strip()
 
-        # copy the file with the final weights to the model path
-        model_filename=os.path.join(model_folder, "classification_model.pth")
-        shutil.copyfile(final_weights, model_filename)
+                # Create a dictionary to hold the image path and label information
+                label_info = {label: 0 for label in label_mapping}
+
+                if labels:
+                    for label in labels.split(","):
+                        if label.strip() in label_mapping:
+                            label_info[label.strip()] = 1
+
+                label_info["Image_Name"] = image_path
+
+                #get the head and tail path
+                head, tail = os.path.split(filename)
+                new_path = os.path.join(head, image_path)
+                label_info["Image_Path"] = new_path
+                data.append(label_info)
+
+    # Create a DataFrame from the list of dictionaries
+    df = pd.DataFrame(data)
+    return df
+
+################################################################################
+##################### DATA LOADER FUNCTION #####################################
+
+def get_dataset(
+    batch_size,
+    img_size,
+    df,
+    max_dataset_len=None,
+):
+    """Returns a TF Dataset."""
+
+    input_img_paths = df['Image_Path'].values
+    labels = df[LABELS].values
+
+    def load_images(input_img_path, label):
+        input_img = tf_io.read_file(input_img_path)
+        input_img = tf_io.decode_png(input_img, channels=3)
+        input_img = tf_image.resize(input_img, (img_size[1], img_size[0]))
+        input_img = tf_image.convert_image_dtype(input_img, "float32")
+        #label = tf.cast(label, tf.float32)
+        return input_img, label
+
+    # For faster debugging, limit the size of data
+    if max_dataset_len:
+        input_img_paths = input_img_paths[:max_dataset_len]
+        labels = labels[:max_dataset_len]
+    dataset = tf_data.Dataset.from_tensor_slices((input_img_paths, labels))
+    dataset = dataset.map(load_images, num_parallel_calls=tf_data.AUTOTUNE)
+    return dataset.batch(batch_size)
+
+
+class LabelsNotRemovedError(Exception):
+    def __init__(self, header_path):
+        super().__init__(f'''\n\nThe labels have not been removed from the header file {header_path}
+                          Run the vanilla-cnn-2024/remove_hidden_data.py script to remove the labels''')
+        self.header_path = header_path
