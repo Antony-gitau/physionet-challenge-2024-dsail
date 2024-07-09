@@ -239,7 +239,7 @@ def load_models(model_folder, verbose):
     digitization_model = None
     classification_filepath = os.path.join(model_folder, 'multilabel-model.keras')
     if not os.path.exists(classification_filepath):
-        wget.download('https://storage.googleapis.com/figures-gp/physionet/multilabel-model.keras', model_folder)
+        wget.download('https://storage.googleapis.com/figures-gp/physionet/multilabel-model-v23.keras', model_folder)
 
     classification_model = tf.keras.models.load_model(classification_filepath)
     #classification_model = keras.saving.load_model(classification_filepath, custom_objects=None, compile=True, safe_mode=True)
