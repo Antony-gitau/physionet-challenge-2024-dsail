@@ -11,3 +11,6 @@ wfdb==4.1.2
 wget==3.2
 tensorflow==2.16.2
 keras==3.4.1
+opencv_contrib_python==4.10.0.82
+opencv_python==4.10.0.82
+opencv_python_headless==4.10.0.82
