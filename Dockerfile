@@ -1,6 +1,6 @@
 ## FROM python:3.9.19-bullseye
 ## KAGGLE ENVIRONMENT:
-FROM python:3.10.13-slim
+FROM python:3.10.14-bullseye
 
 ## DO NOT EDIT these 3 lines.
 RUN mkdir /challenge
