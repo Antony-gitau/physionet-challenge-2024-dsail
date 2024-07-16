@@ -186,4 +186,4 @@ pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/jupyternotebooks,python
 # Ignore keras models
-*.keras
+#*.keras #Dont ignore "Yuri" for use in git-lfs
