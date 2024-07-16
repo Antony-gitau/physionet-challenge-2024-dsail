@@ -21,3 +21,6 @@ RUN pip install torch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1 --index-url h
 
 ## Include the following line if you have a requirements.txt file.
 RUN pip install -r requirements.txt
+
+# Install OpenCV dependencies
+RUN apt-get update && apt-get install -y libgl1-mesa-glx libglib2.0-0
