@@ -49,6 +49,7 @@ TRAIN_FOLDS = [1,2,3,4,5,6,7,8]
 VAL_FOLDS = [9,10]
 label_mapping = {"NORM", "Acute MI", "Old MI", "STTC", "CD", "HYP", "PAC", "PVC", "AFIB/AFL", "TACHY", "BRADY"}
 LABELS = sorted(label_mapping) ## a list of labels
+WEIGHTS_PATH ="inception_v3_weights_tf_dim_ordering_tf_kernels.h5"
 
 joblib.dump({'TRAIN_FOLDS': TRAIN_FOLDS, 'VAL_FOLDS': VAL_FOLDS}, 'folds.pkl')
 
@@ -68,24 +69,10 @@ def train_models(data_folder, model_folder, verbose):
         physio_paths = [str(i) for i in physio_paths]
         df = extract_info_from_hea(label_mapping, physio_paths)
 
-    #ptbxl_db_path = os.path.join(data_folder, 'ptbxl_database.csv')
     ptbxl_db_path = 'ptbxl_database.csv'
-    if not os.path.exists(ptbxl_db_path):
-        if verbose:
-            print("Downloading ptbxl_database.csv...")
-        wget.download('https://physionet.org/files/ptb-xl/1.0.3/ptbxl_database.csv', out=ptbxl_db_path)
-        if verbose:
-            print(f"ptbxl_database.csv downloaded successfully to {ptbxl_db_path}")
-
-        ptbxl_df = pd.read_csv(ptbxl_db_path)
-        ptbxl_df[['filename_hr', 'strat_fold']].head()
-
-        df['strat_fold'] = df['Image_Path'].str[-31:-6].map(dict(zip(ptbxl_df['filename_hr'], ptbxl_df['strat_fold'])))
-        df.head()
-
-        df.to_csv(csv_path, index=False)
-    else :
-        df = pd.read_csv(csv_path)
+    ptbxl_df = pd.read_csv(ptbxl_db_path)
+    ptbxl_df[['filename_hr', 'strat_fold']].head()
+    df['strat_fold'] = df['Image_Path'].str[-31:-6].map(dict(zip(ptbxl_df['filename_hr'], ptbxl_df['strat_fold'])))
 
     train_df = df[df['strat_fold'].isin(TRAIN_FOLDS)]
     val_df = df[df['strat_fold'].isin(VAL_FOLDS)]
@@ -166,7 +153,7 @@ def train_models(data_folder, model_folder, verbose):
     model = keras.models.Model(inputs=input_layer, outputs=output)
     '''
     
-    model = InceptionV3(weights='imagenet', include_top=False, input_shape=(image_shape[1], image_shape[0], 3))
+    model = InceptionV3(weights=WEIGHTS_PATH, include_top=False, input_shape=(image_shape[1], image_shape[0], 3))
     x = keras.layers.GlobalAveragePooling2D()(model.output)
     x = keras.layers.Dense(32, activation='relu')(x)
     x = keras.layers.Dropout(0.2)(x)
@@ -238,8 +225,8 @@ def train_models(data_folder, model_folder, verbose):
 def load_models(model_folder, verbose):
     digitization_model = None
     classification_filepath = os.path.join(model_folder, 'multilabel-model.keras')
-    if not os.path.exists(classification_filepath):
-        wget.download('https://storage.googleapis.com/figures-gp/physionet/multilabel-model-v23.keras', model_folder)
+    # if not os.path.exists(classification_filepath):
+    #     wget.download('https://storage.googleapis.com/figures-gp/physionet/multilabel-model-v23.keras', model_folder)
 
     classification_model = tf.keras.models.load_model(classification_filepath)
     #classification_model = keras.saving.load_model(classification_filepath, custom_objects=None, compile=True, safe_mode=True)
