@@ -49,7 +49,7 @@ TRAIN_FOLDS = [1,2,3,4,5,6,7,8]
 VAL_FOLDS = [9,10]
 label_mapping = {"NORM", "Acute MI", "Old MI", "STTC", "CD", "HYP", "PAC", "PVC", "AFIB/AFL", "TACHY", "BRADY"}
 LABELS = sorted(label_mapping) ## a list of labels
-WEIGHTS_PATH ="inception_v3_weights_tf_dim_ordering_tf_kernels.h5"
+WEIGHTS_PATH ="inception_v3_weights_tf_dim_ordering_tf_kernels_notop.h5" 
 
 joblib.dump({'TRAIN_FOLDS': TRAIN_FOLDS, 'VAL_FOLDS': VAL_FOLDS}, 'folds.pkl')
 
