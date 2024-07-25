@@ -9,10 +9,11 @@ WORKDIR /challenge
 
 ## Download inception v3 imagenet weights
 ## ADD https://storage.googleapis.com/tensorflow/keras-applications/inception_v3/inception_v3_weights_tf_dim_ordering_tf_kernels.h5 .
-ADD https://storage.googleapis.com/tensorflow/keras-applications/inception_v3/inception_v3_weights_tf_dim_ordering_tf_kernels_notop.h5 .
+# ADD https://storage.googleapis.com/tensorflow/keras-applications/inception_v3/inception_v3_weights_tf_dim_ordering_tf_kernels_notop.h5 .
+ADD https://download.pytorch.org/models/inception_v3_google-0cc3c7bd.pth .
 
 ## Download finetuned model
-ADD https://storage.googleapis.com/figures-gp/physionet/multilabel-model-v23.keras ./model/multilabel-model.keras
+# ADD https://storage.googleapis.com/figures-gp/physionet/multilabel-model-v23.keras ./model/multilabel-model.keras
 
 ## download ptbxl-database file
 ADD https://physionet.org/files/ptb-xl/1.0.3/ptbxl_database.csv .
@@ -24,4 +25,4 @@ ADD https://physionet.org/files/ptb-xl/1.0.3/ptbxl_database.csv .
 RUN pip install -r requirements.txt
 
 # Install OpenCV dependencies
-RUN apt-get update && apt-get install -y libgl1-mesa-glx libglib2.0-0
+# RUN apt-get update && apt-get install -y libgl1-mesa-glx libglib2.0-0
