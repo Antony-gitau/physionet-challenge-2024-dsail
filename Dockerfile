@@ -1,6 +1,7 @@
 ## FROM python:3.9.19-bullseye
 ## KAGGLE ENVIRONMENT:
-FROM python:3.10.14-bullseye
+# FROM python:3.10.14-bullseye
+FROM pytorch/pytorch:2.1.1-cuda12.1-cudnn8-runtime
 
 ## DO NOT EDIT these 3 lines.
 RUN mkdir /challenge
