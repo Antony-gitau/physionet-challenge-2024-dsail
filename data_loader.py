@@ -1,4 +1,3 @@
-import os
 from PIL import Image
 import torch
 from torch.utils.data import Dataset
@@ -16,7 +15,6 @@ RESIZE_TO_DIMENSIONS=(425, 550)                             # resize all images 
 TRANSFORM_TRAINING_IMAGES=transforms.RandomHorizontalFlip() # apply this to each training image
 IMAGE_MODE='RGB'                                            # set all images to this mode
 RANDOM_STATE=42                                             # number for repeatable pseudorandomness
-BATCH_SIZE = 32
 
 #=========
 # Classes
@@ -51,7 +49,7 @@ class ECGImageDataset(Dataset):
         self.image_labels=image_labels
            
         # How to transform images
-        inner_transformations = [] #[TRANSFORM_TRAINING_IMAGES] if self.is_training else []
+        inner_transformations = [TRANSFORM_TRAINING_IMAGES] if self.is_training else []
         transformations = [transforms.Resize(RESIZE_TO_DIMENSIONS)] \
                           + inner_transformations \
                           + [transforms.ToTensor(), transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])]
@@ -126,20 +124,21 @@ def get_training_and_validation_loaders(list_of_all_classes, image_path_list, la
 
     # Dataloader for training
     training_loader = torch.utils.data.DataLoader(train_dataset,
-                                                  batch_size=BATCH_SIZE,
+                                                  batch_size=4,
                                                   shuffle=True,
                                                   pin_memory=True,
-                                                  num_workers=os.cpu_count(), #8,
+                                                  num_workers=8,
                                                   drop_last=True,
                                                   collate_fn=train_dataset.collate_fn)
     
     # DataLoader for validation
     validation_loader = torch.utils.data.DataLoader(validation_dataset,
-                                                    batch_size=BATCH_SIZE,
+                                                    batch_size=4,
                                                     shuffle=False, # note this differs
                                                     pin_memory=True,
-                                                    num_workers=os.cpu_count(), #8,
+                                                    num_workers=8,
                                                     drop_last=True,
                                                     collate_fn=validation_dataset.collate_fn)
     
     return training_loader, validation_loader
+

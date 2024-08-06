@@ -25,8 +25,7 @@ from data_loader import get_training_and_validation_loaders
 from functools import partial
 from helper_code import *
 from matplotlib import pyplot as plt
-#from simple_cnn import SimpleCNN
-from inception import InceptionV3
+from simple_cnn import SimpleCNN
 from sklearn.metrics import average_precision_score,precision_recall_curve,roc_curve, roc_auc_score
 from sklearn.model_selection import train_test_split
 from torch import Tensor
@@ -38,7 +37,7 @@ from tqdm import tqdm
 from typing import Callable, Optional
 
 DEVICE = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-EPOCHS = 20
+EPOCHS = 10
 CLASSIFICATION_THRESHOLD=0.5
 CLASSIFICATION_DISTANCE_TO_MAX_THRESHOLD=0.1
 LIST_OF_ALL_LABELS=['NORM', 'Acute MI', 'Old MI', 'STTC', 'CD', 'HYP', 'PAC', 'PVC', 'AFIB/AFL', 'TACHY', 'BRADY'] 
@@ -47,7 +46,6 @@ OPTIM_LR=1e-3
 OPTIM_WEIGHT_DECAY=1e-4
 SCHEDULER_STEP_SIZE=7
 SCHEDULER_GAMMA=0.1
-INCEPTION_WEIGHTS_PATH = 'inception_v3_google-0cc3c7bd.pth'
 
 ################################################################################
 #
@@ -118,7 +116,7 @@ def train_models(data_folder, model_folder, verbose):
         = get_training_and_validation_loaders(LIST_OF_ALL_LABELS, classification_images, classification_labels)
 
     # Initialize a model
-    classification_model = InceptionV3(LIST_OF_ALL_LABELS, INCEPTION_WEIGHTS_PATH).to(DEVICE)
+    classification_model = SimpleCNN(LIST_OF_ALL_LABELS).to(DEVICE)
     for param in classification_model.parameters(): # fine tune all the layers
         param.requires_grad = True
 
@@ -268,8 +266,8 @@ def load_models(model_folder, verbose):
     classes_filename = os.path.join(model_folder, 'classes.txt')
     classes = joblib.load(classes_filename)
 
+    classification_model = SimpleCNN(classes).to(DEVICE) # instantiate a new copy of the model
     classification_filename = os.path.join(model_folder, "classification_model.pth")
-    classification_model = InceptionV3(classes, None).to(DEVICE)
     classification_model.load_state_dict(torch.load(classification_filename))
 
     return digitization_model, classification_model
