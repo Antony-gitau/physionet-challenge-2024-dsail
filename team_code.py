@@ -39,7 +39,7 @@ from typing import Callable, Optional
 
 DEVICE = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 EPOCHS = 20
-CLASSIFICATION_THRESHOLD=0.5
+CLASSIFICATION_THRESHOLD=0.3
 CLASSIFICATION_DISTANCE_TO_MAX_THRESHOLD=0.1
 LIST_OF_ALL_LABELS=['NORM', 'Acute MI', 'Old MI', 'STTC', 'CD', 'HYP', 'PAC', 'PVC', 'AFIB/AFL', 'TACHY', 'BRADY'] 
 RESIZE_TEST_IMAGES=(425, 550)
