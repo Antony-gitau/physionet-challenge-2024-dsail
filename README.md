@@ -1,5 +1,8 @@
 # Paper accompanying this code 
-        Gitau, A. M., Ruto, V., Njathi, Y., Mugambi, L., Sitati, V. A., & Kaburia, A. Automated ECG Image Classification with InceptionV3.
+
+`Gitau, A. M., Ruto, V., Njathi, Y., Mugambi, L., Sitati, V. A., & Kaburia, A. Automated ECG Image Classification with InceptionV3.`
+
+https://github.com/vickruto/physionet-challenge-2024-dsail-full-dataset.git - A  fork of this repo that contains the best-performing model.
 
 # Example code for the George B. Moody PhysioNet Challenge 2024
 
